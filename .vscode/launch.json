@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "dp3",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "train_trans.py",
+            "cwd": "${workspaceFolder}/3D-Diffusion-Policy",
+            "console": "integratedTerminal",
+            "args": [
+                "--config-name=dp3.yaml",
+                "task=metaworld_basketball",
+                "hydra.run.dir=data/outputs/metaworld_basketball-dp3-0602_seed0",
+                "training.debug=False",
+                "training.seed=0",
+                "training.device=cuda:0",
+                "exp_name=metaworld_basketball-dp3-0602",
+                "logging.mode=online",
+                "checkpoint.save_ckpt=True"]}
+    ]
+}
