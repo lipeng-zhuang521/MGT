@@ -310,7 +310,7 @@ class ActTransformer(nn.Module):
         # trans_head: The result is a tensor of logits (unnormalized probabilities) over the vocabulary for every position in the sequence.
         return logits
 
-    def fast_sample(self, first_tokens, src_mask, comb_state, m_length=12, step=1, gt=None):
+    def fast_sample_firsttoken(self, first_tokens, src_mask, comb_state, m_length=12, step=1, gt=None):
         '''
         :param first_tokens: token to start with (batch_size, 1)
         :param src_mask: token mask (batch_size, block_size)
@@ -366,6 +366,89 @@ class ActTransformer(nn.Module):
             sorted_score_indices = sorted_score_indices * select_masked_indices + (last_index * ~select_masked_indices)           
             ids.scatter_(-1, sorted_score_indices, mask_id)          
             ids[:, 0] = first_tokens
+            logits = self.forward(idx=ids, src_mask=src_token_mask, comb_state=comb_state)[:, 0:]
+            filtered_logits = logits  # top_p(logits, .5) # #top_k(logits, topk_filter_thres)
+            if rand_pos:
+                temperature = 1  # starting_temperature * (steps_until_x0 / timesteps) # temperature is annealed
+            else:
+                temperature = 0  # starting_temperature * (steps_until_x0 / timesteps) # temperature is annealed
+
+            # [INFO] if temperature==0: is equal to argmax (filtered_logits.argmax(dim = -1))
+            # pred_ids = filtered_logits.argmax(dim = -1)
+            pred_ids = gumbel_sample(filtered_logits, temperature=temperature, dim=-1)
+            is_mask = ids == mask_id
+            ids = torch.where(is_mask, pred_ids, ids)
+
+            # if timestep == 1.:
+            #     print(probs_without_temperature.shape)
+            probs_without_temperature = logits.softmax(dim=-1)
+            scores = 1 - probs_without_temperature.gather(-1, pred_ids[..., None])
+            scores = rearrange(scores, '... 1 -> ...')
+            scores = scores.masked_fill(~is_mask, 0)
+            # print('ids after:', ids[:,0])
+            # print('gt:', gt[:,0])
+            # ids after: tensor([3302, 1355, 6743, 8192, 8193, 8193, 8193, 8193, 8193, 8193, 8193, 8193,
+            # 8193, 8193, 8193], device='cuda:0')
+            # gt: tensor([3302, 6085, 1868, 8192, 8193, 8193, 8193, 8193, 8193, 8193, 8193, 8193,
+            # 8193, 8193, 8193, 8193], device='cuda:0', dtype=torch.int32)
+
+        return ids
+
+    def fast_sample(self, src_mask, comb_state, m_length=8, step=1, gt=None):
+        '''
+        :param first_tokens: token to start with (batch_size, 1)
+        :param src_mask: token mask (batch_size, block_size)
+        :param state: condition state (batch_size, state_t, state_dim)
+        :param pc: condition point cloud (batch_size, pc_t, pc_dim)
+        :param m_length: max length of action sequence (batch_size)
+        :param step: max step to sample (int)
+        :return: ids (batch_size, block_size - 1)
+        '''
+        batch_size = comb_state.shape[0]
+        rand_pos = True
+        pad_id = self.num_vq + 1
+        mask_id = self.num_vq + 2
+        shape = (batch_size, self.block_size - 1)
+        if m_length is None:
+            m_length = torch.full((batch_size,), 8, dtype=torch.long, device=comb_state.device)
+        m_tokens_len = torch.ceil((m_length) / 4).long()
+        scores = torch.ones(shape, dtype=torch.float32, device=comb_state.device)
+        src_token_mask = generate_src_mask(self.block_size - 1, m_tokens_len + 1)
+        src_token_mask_noend = generate_src_mask(self.block_size - 1, m_tokens_len)
+
+        ids = torch.full(shape, mask_id, dtype=torch.long, device=comb_state.device)
+
+        # ids[:, 0] = first_tokens
+        sample_max_steps = torch.round(step / m_length * m_tokens_len) + 1e-8
+        '''
+        need to check!!!
+        '''
+        # if src_mask is not None:
+        #         src_mask = self.get_attn_mask(src_mask)
+        for i in range(step):
+            # if src_mask is not None:
+            #     src_mask = self.get_attn_mask(src_mask)
+
+            timestep = torch.clip(step / (sample_max_steps), max=1)
+            rand_mask_prob = cosine_schedule(timestep)
+            num_token_masked = (rand_mask_prob * m_tokens_len).long().clip(min=1)
+
+            scores[~src_token_mask_noend] = 0
+            scores = scores / scores.sum(-1)[:, None]  # normalize only unmasked token
+            sorted, sorted_score_indices = scores.sort(descending=True)  # deterministic
+            
+            ids[~src_token_mask] = self.num_vq + 1  # pad_id
+            ids.scatter_(-1, m_tokens_len[..., None].long(), self.num_vq)  # [INFO] replace with end id         
+            select_masked_indices = generate_src_mask(sorted_score_indices.shape[1], num_token_masked)
+          
+            # [INFO] repeat last_id to make it scatter_ the existing last ids.
+            rand_mask_prob = cosine_schedule(timestep)
+            num_token_masked = (rand_mask_prob * m_tokens_len).long().clip(min=1)
+
+            last_index = sorted_score_indices.gather(-1, num_token_masked.unsqueeze(-1) - 1)
+            sorted_score_indices = sorted_score_indices * select_masked_indices + (last_index * ~select_masked_indices)           
+            ids.scatter_(-1, sorted_score_indices, mask_id)          
+            # ids[:, 0] = first_tokens
             logits = self.forward(idx=ids, src_mask=src_token_mask, comb_state=comb_state)[:, 0:]
             filtered_logits = logits  # top_p(logits, .5) # #top_k(logits, topk_filter_thres)
             if rand_pos:

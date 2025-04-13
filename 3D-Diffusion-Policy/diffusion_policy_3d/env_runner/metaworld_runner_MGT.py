@@ -95,9 +95,9 @@ class MetaworldRunner(BaseRunner):
                     
                     # seq_length = self.n_action_steps  # Adjust based on policy's expected sequence length
                     
-                    if is_start == False:
-                        dummy_action = torch.zeros((batch_size, 4, 4), dtype=dtype, device=device)
-                        dummy_m_tokens[:, 0] = policy.vq_model.encode(dummy_action)
+                    # if is_start == False:
+                    #     dummy_action = torch.zeros((batch_size, 4, 4), dtype=dtype, device=device)
+                    #     dummy_m_tokens[:, 0] = policy.vq_model.encode(dummy_action)
                         # print(f'dummy_m_tokens 0',dummy_m_tokens[:, 0]) # dummy_m_tokens (1, 50)
                         # dummy_m_tokens[:, 0] = 0  # EOS token
                     dummy_m_tokens_len = torch.tensor([50] * batch_size, device=device)
@@ -127,15 +127,15 @@ class MetaworldRunner(BaseRunner):
                 action = np_action_dict['action_pred'].squeeze(0)
                 # print(f'action',action.shape) action (12, 4)
                 # print(f'action', action) # action (12, 4)
-                action_his = action[-4:, ...]
-                action_his_tensor = torch.from_numpy(action_his).to(device=device, dtype=dtype)
-                token_his = policy.vq_encode(action_his_tensor.unsqueeze(0))
+                # action_his = action[-4:, ...]
+                # action_his_tensor = torch.from_numpy(action_his).to(device=device, dtype=dtype)
+                # token_his = policy.vq_encode(action_his_tensor.unsqueeze(0))
                 # print(f'token_his',token_his)
                 # print(f'token_his',token_his.shape) # token_his (1, 1)
-                token_his = token_his[..., 0:1]
-                action_exec = action[4:, ...]
+                # token_his = token_his[..., 0:1]
+                action_exec = action[1:, ...]
                 obs, reward, done, info = env.step(action_exec)
-                dummy_m_tokens[:, 0] = token_his
+                # dummy_m_tokens[:, 0] = token_his
 
                 traj_reward += reward
                 done = np.all(done)
@@ -216,7 +216,7 @@ class MetaworldRunner(BaseRunner):
             obs_dict = dict_apply(np_obs_dict,
                                       lambda x: torch.from_numpy(x).to(
                                           device=device))
-            obs_dict = first_obs
+            obs = first_obs
             while not done:
                 np_obs_dict = dict(obs)
                 obs_dict = dict_apply(np_obs_dict,

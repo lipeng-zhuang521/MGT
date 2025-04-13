@@ -324,7 +324,7 @@ class MGT(BasePolicy):
             target_token = self.vq_model.encode(action) # new code
             batch_size = action.shape[0]# new code
             m_tokens = self.regression_token_process(target_token) # new code
-            m_tokens_len = torch.full((batch_size,), 3, dtype=m_tokens.dtype).to(m_tokens.device)# new code
+            m_tokens_len = torch.full((batch_size,), 2, dtype=m_tokens.dtype).to(m_tokens.device)# new code
             # m_tokens_len = batch['m_tokens'].to(self.device)
         else:
             m_tokens = batch['m_tokens'].to(self.device)
@@ -338,8 +338,8 @@ class MGT(BasePolicy):
         # batch['obs']['point_cloud'] = batch['pc']
         # batch['obs']['agent_pos'] = batch['state']
         # print('obs shape:', batch['obs']['point_cloud'].shape) 128,12,1024,6
-        batch['obs']['point_cloud'] = batch['obs']['point_cloud'][:, :5, ...]  # only use first 5 frames
-        batch['obs']['agent_pos'] = batch['obs']['agent_pos'][:, :5, ...]
+        batch['obs']['point_cloud'] = batch['obs']['point_cloud'][:, :2, ...]  # only use first 5 frames
+        batch['obs']['agent_pos'] = batch['obs']['agent_pos'][:, :2, ...]
 
         # m_tokens = batch['m_tokens'].to(self.device)  
         # pc = batch['pc'].to(self.device)
@@ -370,16 +370,16 @@ class MGT(BasePolicy):
         
             # value = next(iter(nobs.values()))
             # B, To = value.shape[:2]
-        this_nobs = dict_apply(nobs, lambda x: x[:,:5,...].reshape(-1,*x.shape[2:]))
+        this_nobs = dict_apply(nobs, lambda x: x[:,:2,...].reshape(-1,*x.shape[2:]))
         
         nobs_features = self.obs_encoder(this_nobs)
             # reshape back to B, T, Do
             # nobs_features = nobs_features.reshape(B, To, -1)
                
-        first_tokens = target[:, 0]
+        # first_tokens = target[:, 0]
         # print('first_tokens',first_tokens) # first_tokens torch.Size([128]) 
         batch_size, max_len = target.shape[:2]
-        nobs_features = nobs_features.reshape(batch_size, 5, -1)
+        nobs_features = nobs_features.reshape(batch_size, 2, -1)
         # nobs_features = nobs_features.reshape(batch_size, -1, 4)
         # print('nobs_features',nobs_features.shape) 128 128 4
         # nobs_features torch.Size([128, 4, 128])
@@ -392,7 +392,7 @@ class MGT(BasePolicy):
         # naction_pred = nsample[...,:Da]
         with torch.no_grad():
             sampled_tokens = self.trans_model.fast_sample(
-                first_tokens=first_tokens,
+                # first_tokens=first_tokens,
                 src_mask=src_mask,
                 # pc = nobs['point_cloud'],
                 comb_state= nobs_features,
@@ -401,14 +401,16 @@ class MGT(BasePolicy):
                 gt=target
             )
         
-        decoded_tokens = sampled_tokens[:,0:3]  # (B, 3)
+        decoded_tokens = sampled_tokens[:,0:2]  # (B, 3)
                
         decoded_actions = self.vq_model.decode(decoded_tokens)  # (128,12,4)
         # print('mgt',decoded_actions.shape)
-        decoded_target = target[:,0:3]  # (B, 3)
+        decoded_target = target[:,0:2]  # (B, 3)
         # print('decoded_target',decoded_target)
         target = self.vq_model.decode(decoded_target)   # (128,12,4)
         # print('mgt',target.shape)
+        norm_decoded_actions = self.normalizer['action'].unnormalize(decoded_actions)
+        norm_target = self.normalizer['action'].unnormalize(target)
     # target also need to detoken
     # Decode latents to action space
         # latents = latents.permute(0, 2, 1)  # (B, code_dim, T)
@@ -423,9 +425,9 @@ class MGT(BasePolicy):
         
         # get prediction
         return {
-        'action_pred': decoded_actions,
+        'action_pred': norm_decoded_actions,
         'sampled_tokens': sampled_tokens,
-        'action_gt': target
+        'action_gt': norm_target
     }
 
     # ========= training  ============
@@ -554,9 +556,9 @@ class MGT(BasePolicy):
         # Process observations
         # obs_features = self.obs_encoder(batch['obs'])
         Loss = self.losses.ReConsLoss(recons_loss=self.args_vq.recons_loss, pos_dim=[0, 1, 2], rot_state=False)
-
         # Process actions through VQ-Transformer
-        actions = batch['action']
+        # actions = batch['action']
+        actions = self.normalizer['action'].normalize(batch['action'])
         pred_actions, loss_commit, perplexity = self.vq_model(actions)        
         # Calculate reconstruction loss
         loss_action = Loss(
@@ -584,7 +586,7 @@ class MGT(BasePolicy):
     
     def regression_token_process(self, token):
 
-        token_length = torch.tensor(3).int()
+        token_length = torch.tensor(2).int()
         batch_size = token.shape[0]
         
         # else:
@@ -601,10 +603,11 @@ class MGT(BasePolicy):
     def compute_trans_loss(self,batch):
         # m_tokens = batch['m_tokens'].to(self.device)
         action = batch['action'].to(self.device)
+        action = self.normalizer['action'].normalize(action)
         target_token = self.vq_model.encode(action) # new code
         batch_size = action.shape[0]# new code
         m_tokens = self.regression_token_process(target_token) # new code
-        m_tokens_len = torch.full((batch_size,), 3, dtype=m_tokens.dtype).to(m_tokens.device)# new code
+        m_tokens_len = torch.full((batch_size,), 2, dtype=m_tokens.dtype).to(m_tokens.device)# new code
         # pc = batch['pc'].to(self.device)
         # state = batch['state'].to(self.device)
         # m_tokens_len = batch['m_tokens_len'].to(self.device)      
@@ -613,8 +616,8 @@ class MGT(BasePolicy):
         # batch['obs'] = {}
         # batch['obs']['point_cloud'] = batch['pc']
         # batch['obs']['agent_pos'] = batch['state']
-        batch['obs']['point_cloud'] = batch['obs']['point_cloud'][:, :5, ...]  # only use first 5 frames
-        batch['obs']['agent_pos'] = batch['obs']['agent_pos'][:, :5, ...]
+        batch['obs']['point_cloud'] = batch['obs']['point_cloud'][:, :2, ...]  # only use first 5 frames
+        batch['obs']['agent_pos'] = batch['obs']['agent_pos'][:, :2, ...]
         nobs = self.normalizer.normalize(batch['obs'])
         # nactions = self.normalizer['action'].normalize(batch['action'])
         
@@ -632,9 +635,9 @@ class MGT(BasePolicy):
         target = m_tokens.int()
         # print('clean target[0]:', target[0])
         batch_size, max_len = target.shape[:2]
-        nobs_features = nobs_features.reshape(batch_size, 5, -1)
+        nobs_features = nobs_features.reshape(batch_size, 2, -1)
         mask = torch.bernoulli(self.args_trans.pkeep * torch.ones(target.shape, device=target.device))  # random (0,1) mask
-        mask[:, 0] = 1 # first token always 1; 1 - 'keep the token',0 - 'drop it'
+        # mask[:, 0] = 1 # first token always 1; 1 - 'keep the token',0 - 'drop it'
         # print('mask[0]:', mask[0]) mask[0]: tensor([1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], device='cuda:0',
         seq_mask_no_end = generate_src_mask(max_len, m_tokens_len)  # bool mask for the action length
         # print('seq_mask',seq_mask_no_end.shape,seq_mask_no_end[0]) 
@@ -663,7 +666,7 @@ class MGT(BasePolicy):
         # print('mask_token[0]:', mask_token[0])
         # mask_token[0]: tensor([ True,  True,  True, False, False, False, False, False, False, False,
         #     False, False, False, False, False, False], device='cuda:0')
-        mask_token[..., 0] = False
+        # mask_token[..., 0] = False
         masked_input_indices = torch.where(mask_token, mask_id, input_indices)
         # print('masked_input_indices[0]:', masked_input_indices[0])
         # masked_input_indices[0]: tensor([4137, 8194, 8194, 8192, 8193, 8193, 8193, 8193, 8193, 8193, 8193, 8193,

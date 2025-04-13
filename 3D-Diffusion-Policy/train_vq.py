@@ -123,21 +123,30 @@ class TrainDP3Workspace:
         test_dataloader_iter = self.cycle(val_dataloader)
         self.model.set_normalizer(normalizer)
 
-        # cprint("-----------------------------", "yellow")
-        # cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
-        # cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
-        # cprint("-----------------------------", "yellow")
+        cprint("-----------------------------", "yellow")
+        cprint(f"[WandB] group: {cfg.logging.group}", "yellow")
+        cprint(f"[WandB] name: {cfg.logging.name}", "yellow")
+        cprint("-----------------------------", "yellow")
         # configure logging
-        # wandb_run = wandb.init(
-        #     dir=str(self.output_dir),
-        #     config=OmegaConf.to_container(cfg, resolve=True),
-        #     **cfg.logging
-        # )
-        # wandb.config.update(
-        #     {
-        #         "output_dir": self.output_dir,
-        #     }
-        # )
+        use_wandb = True   
+        if use_wandb:    
+            # self.wandb_run = wandb.init(
+            #     dir=str(self._output_dir),
+            #     config=OmegaConf.to_container(cfg, resolve=True),
+            #     **cfg.logging
+            # )
+            # wandb.config.update(
+            #     {
+            #         "output_dir": self._output_dir,
+            #     }
+            # )
+            self.wandb_run = wandb.init(
+                project="diffusion_policy_MGT",
+                name='vq',
+                group=cfg.logging.group
+            )
+        else:
+            self.wandb_run = None
 
         # configure checkpoint
 
@@ -186,6 +195,14 @@ class TrainDP3Workspace:
                     f"Recon: {avg_recons:.4f} | "
                     f"Commit: {avg_commit:.4f} | "
                     f"PPL: {avg_perplexity:.2f}")
+                if use_wandb:
+                    wandb.log({
+                        "Warmup/Iteration": nb_iter,
+                        "Warmup/Learning_Rate": current_lr,
+                        "Warmup/Recon_Loss": avg_recons,
+                        "Warmup/Commit_Loss": avg_commit,
+                        "Warmup/Perplexity": avg_perplexity,
+                    }, step=nb_iter)
                 
                 avg_recons, avg_perplexity, avg_commit = 0., 0., 0.
 
@@ -212,7 +229,17 @@ class TrainDP3Workspace:
 
                 print(
                     f"Train. Iter {nb_iter} :  lr {current_lr:.5f} \t Commit. {avg_commit:.5f} \t PPL. {avg_perplexity:.2f} \t Recons.  {avg_recons:.5f}")
-            
+                if use_wandb:
+                    wandb.log({
+                            "Train/Iteration": nb_iter,
+                            "Train/Learning_Rate": current_lr,
+                            "Train/Recon_Loss": avg_recons,
+                            "Train/Commit_Loss": avg_commit,
+                            "Train/Perplexity": avg_perplexity,
+                            "Train/Total_Loss": total_loss.item(),
+                        }, step=nb_iter)
+                
+
                 # step_log = {
                 #         'lr': current_lr,
                 #         'train_loss': total_loss.item(),
@@ -239,7 +266,21 @@ class TrainDP3Workspace:
                 avg_commit += loss_dict['loss_commit']
                 print(
                     f"Test. Iter {nb_iter} :  lr {current_lr:.5f} \t Commit. {avg_commit:.5f} \t PPL. {avg_perplexity:.2f} \t Recons.  {avg_recons:.5f}")
+                if use_wandb:
+                    wandb.log({
+                        "Test/Iteration": nb_iter,
+                        "Test/Learning_Rate": current_lr,
+                        "Test/Recon_Loss": loss_dict['loss_recon'],
+                        "Test/Commit_Loss": loss_dict['loss_commit'],
+                        "Test/Perplexity": loss_dict['perplexity'],
+                        "Test/Total_Loss": total_loss.item(),
+                    }, step=nb_iter)
+                
+                
                 avg_recons, avg_perplexity, avg_commit = 0., 0., 0.
+                
+                
+                
                 # step_log = {
                 #         'lr': current_lr,
                 #         'test_loss': total_loss.item(),
@@ -257,7 +298,9 @@ class TrainDP3Workspace:
         
             if nb_iter % self.model.args_vq.save_iter == 0:
                 torch.save({'net': policy.state_dict()}, os.path.join(vq_out_dir, f'{nb_iter}_net_last.pth'))
-   
+            
+        if use_wandb:
+            wandb.finish()
 
 @hydra.main(
     version_base=None,

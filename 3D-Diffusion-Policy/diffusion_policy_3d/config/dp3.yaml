@@ -8,11 +8,13 @@ task_name: ${task.name}
 shape_meta: ${task.shape_meta}
 exp_name: "debug"
 
-horizon: 12
+horizon: 8
+# horizon: 12
 # horizon: 16
 # n_obs_steps: 2
-n_obs_steps: 5
-n_action_steps: 8
+# n_obs_steps: 5
+n_obs_steps: 2
+n_action_steps: 7
 # n_action_steps: 8
 n_latency_steps: 0
 dataset_obs_steps: ${n_obs_steps}

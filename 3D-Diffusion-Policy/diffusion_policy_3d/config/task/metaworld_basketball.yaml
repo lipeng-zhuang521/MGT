@@ -55,8 +55,10 @@ vq_dataset:
   _target_: diffusion_policy_3d.dataset.metaworld_mgt_dataset.MetaworldDataset
   zarr_path: data/metaworld_basketball_expert.zarr
   horizon: ${horizon}
-  pad_before: 4
-  pad_after: 4
+  # pad_before: 4
+  # pad_after: 4
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
   seed: 42
   val_ratio: 0.02
   max_train_episodes: 90
@@ -65,8 +67,10 @@ trans_dataset:
   _target_: diffusion_policy_3d.dataset.metaworld_mgt_dataset.MetaworldDataset
   zarr_path: data/metaworld_basketball_expert.zarr
   horizon: ${horizon}
-  pad_before: 4
-  pad_after: 4
+  # pad_before: 4
+  # pad_after: 4
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
   seed: 42
   val_ratio: 0.02
   max_train_episodes: 90
